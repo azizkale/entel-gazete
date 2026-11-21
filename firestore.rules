@@ -1,0 +1,86 @@
+rules_version = '2';
+
+// Entel Gazete — Firestore güvenlik kuralları (prompt 5.4).
+// Testler: tests/rules/firestore.test.mjs  (npm run test:rules)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isPublished() {
+      return resource.data.status == 'published';
+    }
+
+    // Yöneticiler her şeyi okuyup yazabilir. Aşağıdaki eşleşmeler okurlara
+    // tanınan ek izinlerdir (kurallar "veya" ile birleşir).
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // Kullanıcı yalnızca kendi yönetici kaydının var olup olmadığını okuyabilir.
+    // Yönetici listesine yazma yalnızca yöneticilere (veya konsol/Admin SDK'ya) açıktır.
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Sayılar ve yazılar: yalnızca yayımlanmış olanlar. Sorgular da
+    // `where('status', '==', 'published')` içermek zorundadır.
+    match /issues/{no} {
+      allow read: if isPublished();
+    }
+
+    match /posts/{id} {
+      allow read: if isPublished();
+    }
+
+    match /authors/{id} {
+      allow read: if true;
+    }
+
+    match /cartoons/{id} {
+      allow read: if true;
+    }
+
+    match /meta/{doc} {
+      allow read: if true;
+    }
+
+    // Bulmaca: herkese açık belgede cevap yok. Çözüm yalnızca
+    // `solutionPublic == true` olunca okunabilir.
+    match /puzzles/{no} {
+      allow read: if true;
+
+      match /private/{doc} {
+        allow read: if get(/databases/$(database)/documents/puzzles/$(no)).data.solutionPublic == true;
+      }
+    }
+
+    // Yorumlar: okurlar yalnızca onaylıları okur; giriş yapan okur yalnızca
+    // kendi adına, "pending" durumunda ve en fazla 1500 karakterlik yorum ekler.
+    // Onaylama/reddetme/silme yalnızca yöneticide (yukarıdaki genel kural).
+    match /comments/{id} {
+      allow read: if resource.data.status == 'approved';
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['postId', 'uid', 'name', 'photoURL', 'text', 'status', 'createdAt'])
+        && request.resource.data.keys().hasAll(['postId', 'uid', 'name', 'text', 'status', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.postId is string
+        && request.resource.data.postId.size() > 0
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 100
+        && (!('photoURL' in request.resource.data) || request.resource.data.photoURL == null || request.resource.data.photoURL is string)
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1500
+        && request.resource.data.createdAt == request.time;
+    }
+  }
+}

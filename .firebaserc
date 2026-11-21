@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "entel-gazete",
+    "emu": "demo-entel"
+  }
+}

@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Entel Gazete — Storage güvenlik kuralları (prompt 5.4).
+// Okuma herkese açık; yazma yalnızca yöneticilere (Firestore `admins/{uid}`).
+// Testler: tests/rules/storage.test.mjs  (npm run test:rules)
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid));
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size <= 5 * 1024 * 1024;
+    }
+
+    function isPdf() {
+      return request.resource.contentType == 'application/pdf'
+        && request.resource.size <= 25 * 1024 * 1024;
+    }
+
+    match /{allPaths=**} {
+      allow read: if true;
+    }
+
+    // Sayı PDF'leri
+    match /issues/{no}/pdf/{file} {
+      allow write: if isAdmin() && isPdf();
+      allow delete: if isAdmin();
+    }
+
+    // Görseller
+    match /posts/{postId}/{file=**} {
+      allow write: if isAdmin() && isImage();
+      allow delete: if isAdmin();
+    }
+    match /cartoons/{id}/{file=**} {
+      allow write: if isAdmin() && isImage();
+      allow delete: if isAdmin();
+    }
+    match /site/{file=**} {
+      allow write: if isAdmin() && isImage();
+      allow delete: if isAdmin();
+    }
+  }
+}
